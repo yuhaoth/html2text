@@ -81,6 +81,7 @@ class HTML2Text(HTMLParser.HTMLParser):
         self.pad_tables = config.PAD_TABLES  # covered in cli
         self.default_image_alt = config.DEFAULT_IMAGE_ALT  # covered in cli
         self.tag_callback = None
+        self.tr_started = False
 
         if out is None:  # pragma: no cover
             self.out = self.outtextf
@@ -140,7 +141,14 @@ class HTML2Text(HTMLParser.HTMLParser):
             return markdown
 
     def outtextf(self, s):
+        if self.tr_started is True:
+            #~ print(repr(s),file=sys.stderr)
+            #~ s=s.strip().replace('\n','<br/>')
+            if '\n' in s:
+                raise Exception("E" + repr(s))
+            #~ print(s,file=sys.stderr)
         self.outtextlist.append(s)
+
         if s:
             self.lastWasNL = s[-1] == '\n'
 
@@ -334,7 +342,7 @@ class HTML2Text(HTMLParser.HTMLParser):
             else:
                 self.p()
 
-        if tag == "br" and start:
+        if tag == "br" and start and self.tr_started is False:
             if self.blockquote > 0:
                 self.o("  \n> ")
             else:
@@ -575,10 +583,13 @@ class HTML2Text(HTMLParser.HTMLParser):
                 if tag == "table":
                     if start:
                         self.table_start = True
+                        self.table_head = True
+                        self.o("\n")
                         if self.pad_tables:
                             self.o("<"+config.TABLE_MARKER_FOR_PAD+">")
                             self.o("  \n")
                     else:
+                        self.table_start = False
                         if self.pad_tables:
                             self.o("</"+config.TABLE_MARKER_FOR_PAD+">")
                             self.o("  \n")
@@ -588,15 +599,28 @@ class HTML2Text(HTMLParser.HTMLParser):
                     self.split_next_td = True
 
                 if tag == "tr" and start:
+                    self.soft_br()
+                    self.o("|")
+                    self.tr_started=True
+                    self.p_p = 1
                     self.td_count = 0
                 if tag == "tr" and not start:
                     self.split_next_td = False
-                    self.soft_br()
-                if tag == "tr" and not start and self.table_start:
+                    self.o("|")
+                    self.tr_started=False
+                    #~ self.o(str(self.p_p))
+                    #~ self.o(' ')
+                if tag == "tr" and not start and self.table_head is True:
                     # Underline table header
-                    self.o("|".join(["---"] * self.td_count))
                     self.soft_br()
-                    self.table_start = False
+                    self.o("|")
+                    self.o("|".join(["---"] * self.td_count))
+                    self.o("|")
+                    #~ self.o("break")
+                    #~ print(self.tr_started,'In head',file=sys.stderr)
+                    #~ self.o(' ')
+                    #~ print(self.tr_started,'In head',file=sys.stderr)
+                    self.table_head = False
                 if tag in ["td", "th"] and start:
                     self.td_count += 1
 
@@ -691,7 +715,13 @@ class HTML2Text(HTMLParser.HTMLParser):
                 self.space = 0
 
             if self.p_p:
-                self.out((self.br_toggle + '\n' + bq) * self.p_p)
+                if self.tr_started is False:
+                    if self.table_start:
+                        self.out('\n' )
+                    else:
+                        self.out((self.br_toggle + '\n' + bq) * self.p_p)
+                #~ else:
+                    #~ self.out(self.br_toggle + '\n' + bq)
                 self.space = 0
                 self.br_toggle = ''
 
@@ -748,6 +778,13 @@ class HTML2Text(HTMLParser.HTMLParser):
 
         if not self.code and not self.pre and not entity_char:
             data = escape_md_section(data, snob=self.escape_snob)
+        if self.tr_started is True:
+            lines=[i.strip() for i in data.strip().splitlines()]
+            #~ print('dat=',repr(data),file=sys.stderr)
+            data=' '.join(lines)
+            if len(data) > 0:
+                data=data + ' '
+            print('dat_strip=',repr(data),file=sys.stderr)
         self.o(data, 1)
 
     def unknown_decl(self, data):  # pragma: no cover
